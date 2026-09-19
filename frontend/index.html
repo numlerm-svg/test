@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>พยากรณ์สภาพคล่องสหกรณ์ออมทรัพย์</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css" />
+<script src="/static/vendor/chart.umd.js"></script>
+</head>
+<body>
+<header class="app-header">
+  <div class="app-header-inner">
+    <h1>พยากรณ์สภาพคล่อง</h1>
+    <input id="coopName" type="text" placeholder="ชื่อสหกรณ์ออมทรัพย์ (ระบุเพื่อแสดงบนหน้าจอ)" />
+  </div>
+</header>
+
+<main class="container">
+
+  <!-- STEP 1: อัปโหลดไฟล์ -->
+  <section id="step-upload" class="card">
+    <h2>1. อัปโหลดข้อมูลย้อนหลัง</h2>
+    <p class="hint">
+      รองรับไฟล์ CSV หรือ Excel (.xlsx) ที่มีข้อมูลรายเดือนอย่างน้อย 24 เดือน ประกอบด้วย เดือน,
+      เงินฝากเข้า, เงินถอนออก, เงินกู้เบิกจ่ายใหม่, เงินกู้รับชำระคืน, เงินสด/เงินฝากธนาคารคงเหลือต้นเดือน
+      — ถ้าชื่อคอลัมน์ในไฟล์ไม่ตรงกับที่ระบบคาดไว้ ไม่ต้องกังวล ขั้นตอนถัดไปจะให้จับคู่คอลัมน์เองได้
+    </p>
+    <div class="upload-box" id="dropZone">
+      <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
+      <p id="fileStatus">ยังไม่ได้เลือกไฟล์</p>
+    </div>
+    <div class="sample-buttons">
+      <span class="hint">หรือทดลองด้วยข้อมูลตัวอย่าง:</span>
+      <button class="btn-secondary" id="loadSample24">ตัวอย่าง 24 เดือน</button>
+      <button class="btn-secondary" id="loadSample6">ตัวอย่าง 6 เดือน (ทดสอบคำเตือนข้อมูลน้อย)</button>
+    </div>
+    <div id="uploadError" class="error-box hidden"></div>
+    <button class="btn-primary" id="btnGoMapping" disabled>ถัดไป: จับคู่คอลัมน์ →</button>
+  </section>
+
+  <!-- STEP 2: จับคู่คอลัมน์ -->
+  <section id="step-mapping" class="card hidden">
+    <h2>2. จับคู่คอลัมน์ข้อมูล</h2>
+    <p class="hint">ระบบเดาการจับคู่เบื้องต้นให้แล้ว กรุณาตรวจสอบและแก้ไขให้ถูกต้องก่อนพยากรณ์ (พบข้อมูลทั้งหมด <span id="mapNRows">-</span> แถว)</p>
+    <div id="mappingFields" class="mapping-grid"></div>
+
+    <h3>ตัวอย่างข้อมูล (8 แถวแรก)</h3>
+    <div class="table-scroll">
+      <table id="previewTable" class="data-table"></table>
+    </div>
+
+    <div class="threshold-row">
+      <label for="thresholdInput">จุดต่ำสุดของเงินสดที่ยอมรับได้ (บาท) — สำรองขั้นต่ำที่บอร์ดกำหนด</label>
+      <input type="number" id="thresholdInput" value="0" step="100000" />
+    </div>
+
+    <div id="mappingError" class="error-box hidden"></div>
+    <div class="button-row">
+      <button class="btn-secondary" id="btnBackToUpload">← ย้อนกลับ</button>
+      <button class="btn-primary" id="btnRunForecast">พยากรณ์สภาพคล่อง →</button>
+    </div>
+  </section>
+
+  <!-- STEP 3: แดชบอร์ด -->
+  <section id="step-dashboard" class="hidden">
+
+    <div id="warningsBanner" class="warnings-banner hidden"></div>
+
+    <div class="summary-cards">
+      <div class="card summary-card">
+        <div class="summary-label">กระแสเงินสดสุทธิเดือนหน้า (คาดการณ์)</div>
+        <div class="summary-value" id="cardNextMonth">-</div>
+      </div>
+      <div class="card summary-card">
+        <div class="summary-label">ยอดเงินสดคงเหลือล่าสุด</div>
+        <div class="summary-value" id="cardLastBalance">-</div>
+      </div>
+      <div class="card summary-card" id="cardRiskWrap">
+        <div class="summary-label">เดือนที่เสี่ยงต่ำกว่าจุดต่ำสุด (6 เดือนข้างหน้า)</div>
+        <div class="summary-value" id="cardRiskMonths">-</div>
+      </div>
+      <div class="card summary-card">
+        <div class="summary-label">วิธีพยากรณ์ที่ใช้</div>
+        <div class="summary-value small" id="cardMethod">-</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="chart-header">
+        <h2>กราฟเงินสดคงเหลือ: ย้อนหลัง + พยากรณ์ 6 เดือน</h2>
+        <div class="threshold-row inline">
+          <label for="thresholdInputDash">จุดต่ำสุดที่ยอมรับได้ (บาท):</label>
+          <input type="number" id="thresholdInputDash" step="100000" />
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="balanceChart"></canvas>
+      </div>
+      <p class="chart-note" id="selectionReason"></p>
+    </div>
+
+    <div class="card">
+      <h2>เปรียบเทียบวิธีพยากรณ์ (ทดสอบย้อนหลัง)</h2>
+      <div class="table-scroll">
+        <table id="backtestTable" class="data-table"></table>
+      </div>
+      <p class="hint">
+        MAPE (Mean Absolute Percentage Error) คือค่าเฉลี่ยของเปอร์เซ็นต์ความคลาดเคลื่อนระหว่างค่าพยากรณ์กับค่าจริง
+        ยิ่งค่าน้อยยิ่งแม่นยำ ระบบทดสอบทุกวิธีด้วยข้อมูลย้อนหลังจริงก่อนเลือกวิธีที่ดีที่สุดให้อัตโนมัติ ไม่ได้เลือกวิธีที่ซับซ้อนที่สุดไว้ก่อน
+      </p>
+    </div>
+
+    <div class="button-row">
+      <button class="btn-secondary" id="btnStartOver">อัปโหลดไฟล์ใหม่</button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="app-footer">
+  <p>เครื่องมือนี้ใช้ประกอบดุลยพินิจของบอร์ด/ฝ่ายการเงินเท่านั้น ไม่ใช่คำตัดสินใจสุดท้าย</p>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
