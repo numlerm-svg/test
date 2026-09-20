@@ -1,0 +1,115 @@
+rules_version = '2';
+
+// สิทธิ์การเข้าถึงอ้างอิงเอกสาร roles/{uid} เป็นแหล่งข้อมูลบทบาทเดียวที่เชื่อถือได้เสมอ
+// เอกสารนี้เขียนได้เฉพาะผ่าน Cloud Function ด้วย Firebase Admin SDK (ดู functions/src/routes/roles.ts)
+// ไม่อนุญาตให้ฝั่งเว็บเขียน roles/{uid} โดยตรงไม่ว่ากรณีใด เพื่อป้องกันการเพิ่มสิทธิ์ตนเอง
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function roleDoc() {
+      return exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/roles/$(request.auth.uid)).data
+        : { role: 'MEMBER', memberId: null };
+    }
+
+    function isAdmin() {
+      return isSignedIn() && roleDoc().role == 'ADMIN';
+    }
+
+    function isStaff() {
+      return isSignedIn() && (roleDoc().role == 'STAFF' || roleDoc().role == 'ADMIN');
+    }
+
+    function myMemberId() {
+      return isSignedIn() ? roleDoc().memberId : null;
+    }
+
+    function ownsMemberDoc(memberId) {
+      return isSignedIn() && myMemberId() == memberId;
+    }
+
+    function ownsMemberField() {
+      return isSignedIn() && resource.data.memberId == myMemberId() && myMemberId() != null;
+    }
+
+    // roles: อ่านได้เฉพาะเจ้าของหรือผู้ดูแลระบบ เขียนได้เฉพาะผ่าน Cloud Function (Admin SDK ข้ามกฎนี้)
+    match /roles/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if false;
+    }
+
+    // counters: ใช้สร้างเลขที่เอกสารแบบไม่ชนกัน เจ้าหน้าที่/ผู้ดูแลระบบเท่านั้นที่ทำธุรกรรมที่ต้องใช้
+    match /counters/{name} {
+      allow read, write: if isStaff();
+    }
+
+    match /members/{memberId} {
+      allow read: if isStaff() || ownsMemberDoc(memberId);
+      allow create, update: if isStaff();
+      allow delete: if false;
+    }
+
+    match /depositAccounts/{accountId} {
+      allow read: if isStaff() || ownsMemberField();
+      allow create, update: if isStaff();
+      allow delete: if false;
+    }
+
+    match /depositTransactions/{txnId} {
+      allow read: if isStaff() || ownsMemberField();
+      allow create: if isStaff();
+      allow update, delete: if false; // รายการธุรกรรมเป็น ledger ที่แก้ไขย้อนหลังไม่ได้
+    }
+
+    match /loanApplications/{applicationId} {
+      allow read: if isStaff() || ownsMemberField();
+      allow create: if isStaff() || (isSignedIn() && request.resource.data.memberId == myMemberId());
+      allow update: if isStaff();
+      allow delete: if false;
+    }
+
+    match /loanContracts/{contractId} {
+      allow read: if isStaff() || ownsMemberField();
+      allow create, update: if isStaff();
+      allow delete: if false;
+    }
+
+    match /loanRepayments/{repaymentId} {
+      allow read: if isStaff() || ownsMemberField();
+      allow create: if isStaff();
+      allow update, delete: if false;
+    }
+
+    match /shareLedger/{entryId} {
+      allow read: if isStaff() || ownsMemberField();
+      allow write: if isStaff();
+    }
+
+    match /dividendRuns/{runId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /dividendAllocations/{allocationId} {
+      allow read: if isStaff() || ownsMemberField();
+      allow write: if isAdmin();
+    }
+
+    match /billingRuns/{runId} {
+      allow read: if isSignedIn();
+      allow create, update: if isStaff();
+      allow delete: if false;
+    }
+
+    match /billingItems/{itemId} {
+      allow read: if isStaff() || ownsMemberField();
+      allow create, update: if isStaff();
+      allow delete: if false;
+    }
+  }
+}
