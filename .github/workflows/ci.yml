@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [claude/serene-goodall-xs4y40]
   pull_request:
 
 jobs:
@@ -15,6 +15,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run build
